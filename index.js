@@ -62,12 +62,13 @@ function Conn(ws, req) {
       jwt = null;
       
       _this.log('Invalid JWT; closing connection: ' + err);
-      _this.send('error', {reason: 'auth', message: 'Invalid authorization token'});
+      _this.send('error', {reason: 'auth', message: 'Invalid authorization token.'});
       ws.close();
       return false;
     }
     
     _this.log('JWT verified, user: ' + _this.user() + ', channel: ' + _this.channel());
+    _this.send('ebs', 'Twitch authorization verified.');
     return true;
   }
   
