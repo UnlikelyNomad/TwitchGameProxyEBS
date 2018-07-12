@@ -95,7 +95,6 @@ wss.on('connection', (ws, req) => {
   
   ws.on('close', function() {
     allConns.splice(allConns.indexOf(conn), 1);
-    delete conn;
   }
   
 });
