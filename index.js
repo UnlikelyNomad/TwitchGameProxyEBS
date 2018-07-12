@@ -22,7 +22,7 @@ function handleAuth(ws, client, token) {
   var payload = null;
   
   try {
-    payload = jwt.verify(token, secret);
+    payload = jwt.verify(token, Buffer.from(secret, 'base64'));
   } catch (err) {
     logClient(client, 'Invalid JWT; closing connection: ' + err);
     ws.send(JSON.stringify({id: 'error', data: {reason: 'auth', message: 'Invalid authorization token'}}));
