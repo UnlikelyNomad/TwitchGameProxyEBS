@@ -2,7 +2,7 @@
 
 var WebSocket = require('ws');
 var request = require('request');
-var jwt = require('jsonwebtoken');
+var JWT = require('jsonwebtoken');
 
 //put the extension secret one level up to prevent accidental inclusion in repos
 var secret = require('../secret');
@@ -10,49 +10,93 @@ var secret = require('../secret');
 var port = 9443;
 var debug = true;
 
+var allConns = [];
+
 const wss = new WebSocket.Server({
   port: port
 });
 
-function logClient(client, message) {
-  console.log('[' + client + '] ' + message);
-}
+function noop() {}
 
-function handleAuth(ws, client, token) {
-  var payload = null;
-  
-  try {
-    payload = jwt.verify(token, Buffer.from(secret, 'base64'));
-  } catch (err) {
-    logClient(client, 'Invalid JWT; closing connection: ' + err);
-    ws.send(JSON.stringify({id: 'error', data: {reason: 'auth', message: 'Invalid authorization token'}}));
-    ws.close();
-    return;
-  }
-  
-  logClient(client, 'JWT verified, user: ' + payload.user_id + ', channel: ' + payload.channel_id);
-}
-
-wss.on('connection', (ws, req) => {
+//constructor function for connections
+function Conn(ws, req) {
   //get remote client from proxy forwarding headers or if they're not set, the typical remote address.
   //This is originally running behind an apache proxy
   var client = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+  var _this = this;
   
+  var jwt = null;
   
+  this.close = function() {
+    ws.close();
+  }
+  
+  this.log = function(message) {
+    console.log('[' + client + '] ' + message);
+  }
+  
+  this.send = function(id, data) {
+    ws.send(JSON.stringify({id: id, data: data}));
+  }
+  
+  this.user = function() {
+    if (jwt) {
+      return jwt.user_id;
+    }
     
-  ws.on('message', (m) => {
+    return null;
+  }
+  
+  this.channel = function() {
+    if (jwt) {
+      return jwt.channel_id;
+    }
     
+    return null;
+  }
+  
+  function trySetJWT(token) {
+    try {
+      jwt = JWT.verify(token, Buffer.from(secret, 'base64'));
+    } catch (err) {
+      jwt = null;
+      
+      _this.log('Invalid JWT; closing connection: ' + err);
+      _this.send('error', {reason: 'auth', message: 'Invalid authorization token'});
+      ws.close();
+      return false;
+    }
+    
+    _this.log('JWT verified, user: ' + _this.user() + ', channel: ' + _this.channel());
+    return true;
+  }
+  
+  function onMessage(m) {
     var msg = JSON.parse(m);
 
     if (debug) {
-      logClient(client, '(' + msg.id + ') ' + msg.data);
+      _this.log(client, '"' + msg.id + '" ' + msg.data);
     }
     
     switch (msg.id) {
       case 'auth':  //sent immediately by client on connection. Data is JWT from Twitch
-        handleAuth(ws, client, msg.data);
+        trySetJWT(msg.data);
         break;
     }
-  });
+  }
+  
+  ws.on('message', onMessage);
+}
+
+wss.on('connection', (ws, req) => {
+  
+  var conn = new Conn(ws, req);
+  allConns.push(conn);
+  
+  ws.on('close', function() {
+    allConns.splice(allConns.indexOf(conn), 1);
+    delete conn;
+  }
+  
 });
 
